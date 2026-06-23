@@ -6504,6 +6504,24 @@ class CDrawingDocument {
         const capturedSlideIndex = this.currentSlideIndex;
         const capturedSlide = this.currentSlide;
 
+        // Attach the slide coordinate scale to chart data so the Chart.js renderer can
+        // rasterise the chart at its native (zoom-independent) size and downscale into the
+        // on-slide area. ChartRenderer receives `this.graphics` (the engine), which has no
+        // coordinateSystem, so this scale must be supplied here where it is available.
+        const _csScale = (this.coordinateSystem && typeof this.coordinateSystem.scale === 'number' && this.coordinateSystem.scale > 0)
+            ? this.coordinateSystem.scale
+            : null;
+        const _csDpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
+        const withChartScale = (cd) => {
+            if (cd && _csScale !== null) {
+                cd._scalingInfo = Object.assign({}, cd._scalingInfo, {
+                    displayScale: _csScale,
+                    devicePixelRatio: _csDpr
+                });
+            }
+            return cd;
+        };
+
 
 
         // Try to render chart data if available
@@ -6547,7 +6565,7 @@ class CDrawingDocument {
 
             try {
                 const chartRenderer = new ChartRenderer(this.graphics);
-                await chartRenderer.renderChart(shape.chartData, bounds.x, bounds.y, bounds.w, bounds.h);
+                await chartRenderer.renderChart(withChartScale(shape.chartData), bounds.x, bounds.y, bounds.w, bounds.h);
             } catch (error) {
                 this.drawChartPlaceholder(bounds, 'Render Failed');
             }
@@ -6571,7 +6589,7 @@ class CDrawingDocument {
                 if (embeddedData) {
                     shape.chartData = embeddedData;
                     const chartRenderer2 = new ChartRenderer(this.graphics);
-                    await chartRenderer2.renderChart(embeddedData, bounds.x, bounds.y, bounds.w, bounds.h);
+                    await chartRenderer2.renderChart(withChartScale(embeddedData), bounds.x, bounds.y, bounds.w, bounds.h);
                     return;
                 }
 
@@ -6587,7 +6605,7 @@ class CDrawingDocument {
                         if (chartData) {
                             shape.chartData = chartData;
                             const chartRenderer3 = new ChartRenderer(this.graphics);
-                            await chartRenderer3.renderChart(chartData, bounds.x, bounds.y, bounds.w, bounds.h);
+                            await chartRenderer3.renderChart(withChartScale(chartData), bounds.x, bounds.y, bounds.w, bounds.h);
                         } else {
                             this.drawChartPlaceholder(bounds, 'Processing Failed');
                         }
@@ -6932,6 +6950,16 @@ class CDrawingDocument {
         // Get body properties for alignment and text wrapping (accept bodyPr or bodyProperties)
         const bodyProps = textBody.bodyProperties || textBody.bodyPr || {};
 
+        // Apply "shrink text on overflow" auto-fit. PowerPoint pre-computes a font scale and
+        // line-space reduction (normAutofit) so the text fits the shape; honoring them keeps
+        // text from rendering oversized (too wide / overflowing the box). These instance
+        // fields are read by setupStandardFont and calculateStandardLineHeight for the
+        // duration of this text body's layout + rendering, then reset below.
+        const _afScale = bodyProps.fontScale;
+        this._textAutofitScale = (typeof _afScale === 'number' && _afScale > 0 && _afScale <= 1) ? _afScale : 1;
+        const _lnReduction = bodyProps.lineSpaceReduction;
+        this._textLineReduction = (typeof _lnReduction === 'number' && _lnReduction > 0) ? Math.min(0.9, _lnReduction) : 0;
+
         // Handle vertical alignment from body properties
         // Map PPTX anchor values to our internal values
         let verticalAlign = bodyProps.anchor || bodyProps.verticalAlign || 't';
@@ -7196,7 +7224,7 @@ class CDrawingDocument {
                 // Calculate proper baseline position for text using scaled font size
                 const baseFontSize = paraProps.fontSize || 12;
                 const scaleFactor = this.getTextScaleFactor();
-                const scaledFontSize = baseFontSize * scaleFactor;
+                const scaledFontSize = baseFontSize * scaleFactor * (this._textAutofitScale || 1);
                 const baselineY = currentY + scaledFontSize * 0.8;
 
                 // Render bullet for first line of paragraph
@@ -7372,6 +7400,10 @@ class CDrawingDocument {
                 currentY += paragraphSpacing;
             }
         }
+
+        // Reset auto-fit scaling so it doesn't leak into the next shape's text.
+        this._textAutofitScale = 1;
+        this._textLineReduction = 0;
     }
 
     /**
@@ -7497,9 +7529,11 @@ class CDrawingDocument {
         const ctx = this.graphics.context;
         if (!ctx) {return;}
 
-        // Scale font size to match slide-to-canvas scaling
+        // Scale font size to match slide-to-canvas scaling, including any active
+        // auto-fit ("shrink text on overflow") scale for the current text body.
         const scaleFactor = this.getTextScaleFactor();
-        const scaledFontSize = (runProps.fontSize || 12) * scaleFactor;
+        const autofitScale = this._textAutofitScale || 1;
+        const scaledFontSize = (runProps.fontSize || 12) * scaleFactor * autofitScale;
 
         // Build font string
         const fontStyle = runProps.italic ? 'italic' : 'normal';
@@ -8033,13 +8067,15 @@ class CDrawingDocument {
      * Fixed: Apply proper scaling to match font scaling
      */
     calculateStandardLineHeight(paraProps, wrappedLines = null) {
+        // Auto-fit ("shrink text on overflow") line-space reduction for the current text body.
+        const lnReductionFactor = 1 - (this._textLineReduction || 0);
         // If absolute line spacing in points is provided, use it exactly
         if (paraProps.lineHeightPoints) {
             // Convert points to pixels: pts * (96/72) gives base pixels, then scale for canvas
             // Use coordinateSystem.scale directly (NOT scaleFactor which already includes 96/72)
             const pixelsPerPoint = 96 / 72;
             const csScale = (this.coordinateSystem && this.coordinateSystem.scale) || 1;
-            return paraProps.lineHeightPoints * pixelsPerPoint * csScale;
+            return paraProps.lineHeightPoints * pixelsPerPoint * csScale * lnReductionFactor;
         }
 
         let baseFontSizePt = paraProps.fontSize || 12; // points
@@ -8065,11 +8101,12 @@ class CDrawingDocument {
         }
 
         const scaleFactor = this.getTextScaleFactor();
-        const scaledFontSizePx = baseFontSizePt * scaleFactor; // px
+        const autofitScale = this._textAutofitScale || 1;
+        const scaledFontSizePx = baseFontSizePt * scaleFactor * autofitScale; // px
 
         // Otherwise, use percent of font size (default 100%)
         const lineHeightPercent = paraProps.lineHeight || 100;
-        const lineHeight = (scaledFontSizePx * lineHeightPercent) / 100;
+        const lineHeight = (scaledFontSizePx * lineHeightPercent) / 100 * lnReductionFactor;
 
         // Return line height only; paragraph spacing is applied once per paragraph
         return lineHeight;

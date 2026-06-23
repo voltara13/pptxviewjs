@@ -2171,7 +2171,15 @@ class ChartProcessor {
                 if (bodyPr) {
                     const rot = bodyPr.getAttribute('rot');
                     if (rot) {
-                        axis.tickLabels.rotation = parseInt(rot) / 60000;
+                        const deg = parseInt(rot) / 60000;
+                        // PowerPoint writes an out-of-range sentinel (e.g. rot="-60000000" = -1000°)
+                        // to mean "automatic" rotation. Honor only real explicit angles (±90°);
+                        // otherwise leave rotation unset so Chart.js auto-fits the labels
+                        // (horizontal, rotating only when they don't fit) instead of forcing a
+                        // bogus near-vertical angle.
+                        if (Number.isFinite(deg) && Math.abs(deg) <= 90) {
+                            axis.tickLabels.rotation = deg;
+                        }
                     }
                 }
             } else {

@@ -84,10 +84,20 @@ class ChartRenderer {
                 throw new Error('Canvas context not available');
             }
             
-            // Provide scaling info so Chart.js temp canvas can render at a zoom-independent size
-            const displayScale = (this.graphics && this.graphics.coordinateSystem && typeof this.graphics.coordinateSystem.scale === 'number')
-                ? this.graphics.coordinateSystem.scale
-                : 1;
+            // Provide scaling info so Chart.js temp canvas can render at a zoom-independent size.
+            // Prefer a displayScale pre-supplied by the caller (the adapter's coordinate system),
+            // because `this.graphics` here is the low-level engine, which has no coordinateSystem
+            // of its own — relying on it alone collapses displayScale to 1 and the chart is then
+            // rasterised at its tiny on-slide pixel size (Chart.js lays out fixed-px legends/axis
+            // titles that then eat the whole canvas, leaving no plot area).
+            const presetScale = (chartData._scalingInfo && typeof chartData._scalingInfo.displayScale === 'number' && chartData._scalingInfo.displayScale > 0)
+                ? chartData._scalingInfo.displayScale
+                : null;
+            const displayScale = presetScale !== null
+                ? presetScale
+                : ((this.graphics && this.graphics.coordinateSystem && typeof this.graphics.coordinateSystem.scale === 'number')
+                    ? this.graphics.coordinateSystem.scale
+                    : 1);
             const devicePixelRatio = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
             chartData._scalingInfo = Object.assign({}, chartData._scalingInfo || {}, {
                 displayScale,
