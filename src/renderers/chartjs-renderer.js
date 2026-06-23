@@ -432,6 +432,24 @@ class ChartJSRenderer {
             yAxisMin = Math.floor(yAxisMin / stepSize) * stepSize;
         }
 
+        // PowerPoint lifts the value-axis baseline above zero when all data is positive and
+        // clustered well above zero (data range smaller than the data minimum). The default
+        // scaling above forces a 0 baseline (e.g. 0-200), which squashes the bars and hides
+        // the detail PowerPoint shows (e.g. 90-120). Only applies when PPTX gives no explicit
+        // min/max/majorUnit, and not for stacked charts (which are read relative to zero).
+        const dataMin = allValues.length ? Math.min(...allValues) : 0;
+        const noExplicitValAxis = !(axes?.value?.scaling?.min != null)
+            && !(axes?.value?.scaling?.max != null)
+            && !(axes?.value?.scaling?.majorUnit != null);
+        if (noExplicitValAxis && !isStacked && dataMin > 0 && (maxValue - dataMin) < dataMin) {
+            const baseline = this.calculatePositiveBaselineScale(dataMin, maxValue);
+            if (baseline) {
+                yAxisMin = baseline.min;
+                yAxisMax = baseline.max;
+                stepSize = baseline.step;
+            }
+        }
+
         // CRITICAL FIX: Y-AXIS SCALING for stacked vs non-stacked charts
         // CRITICAL FIX: Check if we have specific column chart with max value around 1100
         // This matches the demo chart pattern that needs 0-1200 with 200 increments
@@ -2443,7 +2461,7 @@ class ChartJSRenderer {
             : rawValueAxisPos;
         const scales = {
             y: {
-                beginAtZero: yAxisMin >= 0,
+                beginAtZero: yAxisMin === 0,
                 min: yAxisMin,
                 max: yAxisMax,
                 stacked: isStacked, // Enable stacking for all stacked chart types (area, column, bar)
@@ -2498,7 +2516,7 @@ class ChartJSRenderer {
             let effectiveCatPos = categoryAxisPos; // use crossing-aware position
 
             scales.x = {
-                beginAtZero: yAxisMin >= 0,
+                beginAtZero: yAxisMin === 0,
                 min: yAxisMin,
                 max: yAxisMax,
                 stacked: isStacked,
@@ -2813,6 +2831,46 @@ class ChartJSRenderer {
             max: optimalMax,
             step: optimalStep
         };
+    }
+
+    /**
+     * Compute a PowerPoint-style value-axis range with a NON-ZERO baseline.
+     * PowerPoint does not always start a value axis at zero: when all data is positive
+     * and clustered well above zero, it lifts the minimum (e.g. data 100..115.8 renders
+     * as 90..120 with a step of 10) so the differences between bars stay visible. The
+     * default 0-based scaling would squash such data (e.g. 0..200).
+     *
+     * Returns { min, max, step } with min > 0, or null when no sensible non-zero
+     * baseline applies (caller should then fall back to the 0-based scaling).
+     * @param {number} dataMin - Smallest data value (must be > 0 to get a result)
+     * @param {number} dataMax - Largest data value
+     */
+    calculatePositiveBaselineScale(dataMin, dataMax) {
+        const range = dataMax - dataMin;
+        if (!(range > 0) || !(dataMin > 0)) {
+            return null;
+        }
+
+        const pad = range * 0.05;
+        const paddedMin = dataMin - pad;
+        const paddedMax = dataMax + pad;
+        const magnitude = Math.pow(10, Math.floor(Math.log10(range)));
+
+        // Try nice steps from largest to smallest, preferring fewer gridlines (as
+        // PowerPoint tends to). Accept the first step that yields a non-zero floor and
+        // 3-6 intervals across the padded range.
+        const steps = [...new Set([100, 50, 20, 10, 5, 2, 1].map(b => b * (magnitude / 10)))]
+            .sort((a, b) => b - a);
+        for (const step of steps) {
+            if (!(step > 0)) { continue; }
+            const min = Math.floor(paddedMin / step) * step;
+            const max = Math.ceil(paddedMax / step) * step;
+            const intervals = (max - min) / step;
+            if (min > 0 && intervals >= 3 && intervals <= 6) {
+                return { min, max, step };
+            }
+        }
+        return null;
     }
 }
 

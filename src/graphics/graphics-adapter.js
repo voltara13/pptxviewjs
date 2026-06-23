@@ -6504,6 +6504,24 @@ class CDrawingDocument {
         const capturedSlideIndex = this.currentSlideIndex;
         const capturedSlide = this.currentSlide;
 
+        // Attach the slide coordinate scale to chart data so the Chart.js renderer can
+        // rasterise the chart at its native (zoom-independent) size and downscale into the
+        // on-slide area. ChartRenderer receives `this.graphics` (the engine), which has no
+        // coordinateSystem, so this scale must be supplied here where it is available.
+        const _csScale = (this.coordinateSystem && typeof this.coordinateSystem.scale === 'number' && this.coordinateSystem.scale > 0)
+            ? this.coordinateSystem.scale
+            : null;
+        const _csDpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
+        const withChartScale = (cd) => {
+            if (cd && _csScale !== null) {
+                cd._scalingInfo = Object.assign({}, cd._scalingInfo, {
+                    displayScale: _csScale,
+                    devicePixelRatio: _csDpr
+                });
+            }
+            return cd;
+        };
+
 
 
         // Try to render chart data if available
@@ -6547,7 +6565,7 @@ class CDrawingDocument {
 
             try {
                 const chartRenderer = new ChartRenderer(this.graphics);
-                await chartRenderer.renderChart(shape.chartData, bounds.x, bounds.y, bounds.w, bounds.h);
+                await chartRenderer.renderChart(withChartScale(shape.chartData), bounds.x, bounds.y, bounds.w, bounds.h);
             } catch (error) {
                 this.drawChartPlaceholder(bounds, 'Render Failed');
             }
@@ -6571,7 +6589,7 @@ class CDrawingDocument {
                 if (embeddedData) {
                     shape.chartData = embeddedData;
                     const chartRenderer2 = new ChartRenderer(this.graphics);
-                    await chartRenderer2.renderChart(embeddedData, bounds.x, bounds.y, bounds.w, bounds.h);
+                    await chartRenderer2.renderChart(withChartScale(embeddedData), bounds.x, bounds.y, bounds.w, bounds.h);
                     return;
                 }
 
@@ -6587,7 +6605,7 @@ class CDrawingDocument {
                         if (chartData) {
                             shape.chartData = chartData;
                             const chartRenderer3 = new ChartRenderer(this.graphics);
-                            await chartRenderer3.renderChart(chartData, bounds.x, bounds.y, bounds.w, bounds.h);
+                            await chartRenderer3.renderChart(withChartScale(chartData), bounds.x, bounds.y, bounds.w, bounds.h);
                         } else {
                             this.drawChartPlaceholder(bounds, 'Processing Failed');
                         }

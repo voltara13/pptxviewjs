@@ -2228,7 +2228,10 @@ var require_chart_processor = __commonJS({
             if (bodyPr) {
               const rot = bodyPr.getAttribute("rot");
               if (rot) {
-                axis.tickLabels.rotation = parseInt(rot) / 6e4;
+                const deg = parseInt(rot) / 6e4;
+                if (Number.isFinite(deg) && Math.abs(deg) <= 90) {
+                  axis.tickLabels.rotation = deg;
+                }
               }
             }
           } else {
@@ -3170,7 +3173,8 @@ var require_chart_renderer = __commonJS({
           if (!ctx) {
             throw new Error("Canvas context not available");
           }
-          const displayScale = this.graphics && this.graphics.coordinateSystem && typeof this.graphics.coordinateSystem.scale === "number" ? this.graphics.coordinateSystem.scale : 1;
+          const presetScale = chartData._scalingInfo && typeof chartData._scalingInfo.displayScale === "number" && chartData._scalingInfo.displayScale > 0 ? chartData._scalingInfo.displayScale : null;
+          const displayScale = presetScale !== null ? presetScale : this.graphics && this.graphics.coordinateSystem && typeof this.graphics.coordinateSystem.scale === "number" ? this.graphics.coordinateSystem.scale : 1;
           const devicePixelRatio = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
           chartData._scalingInfo = Object.assign({}, chartData._scalingInfo || {}, {
             displayScale,
@@ -5941,7 +5945,7 @@ var require_chartjs_renderer = __commonJS({
        * Convert PPTX chart data to Chart.js configuration
        */
       convertToChartJSConfig(chartData, chartArea) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
         const validatedChartData = this.validateChartData(chartData);
         if (!validatedChartData) {
           throw new Error("Cannot render chart without real data from PPTX DOM");
@@ -6042,11 +6046,21 @@ var require_chartjs_renderer = __commonJS({
         if (yAxisMin < 0 && stepSize > 0 && !(((_b = (_a = axes == null ? void 0 : axes.value) == null ? void 0 : _a.scaling) == null ? void 0 : _b.min) != null)) {
           yAxisMin = Math.floor(yAxisMin / stepSize) * stepSize;
         }
+        const dataMin = allValues.length ? Math.min(...allValues) : 0;
+        const noExplicitValAxis = !(((_d = (_c = axes == null ? void 0 : axes.value) == null ? void 0 : _c.scaling) == null ? void 0 : _d.min) != null) && !(((_f = (_e = axes == null ? void 0 : axes.value) == null ? void 0 : _e.scaling) == null ? void 0 : _f.max) != null) && !(((_h = (_g = axes == null ? void 0 : axes.value) == null ? void 0 : _g.scaling) == null ? void 0 : _h.majorUnit) != null);
+        if (noExplicitValAxis && !isStacked && dataMin > 0 && maxValue - dataMin < dataMin) {
+          const baseline = this.calculatePositiveBaselineScale(dataMin, maxValue);
+          if (baseline) {
+            yAxisMin = baseline.min;
+            yAxisMax = baseline.max;
+            stepSize = baseline.step;
+          }
+        }
         if (type === "column" && maxValue >= 900 && maxValue <= 1200) {
           yAxisMin = 0;
           yAxisMax = 1200;
           stepSize = 200;
-        } else if (!((_d = (_c = axes == null ? void 0 : axes.value) == null ? void 0 : _c.scaling) == null ? void 0 : _d.majorUnit) && ((_f = (_e = axes == null ? void 0 : axes.value) == null ? void 0 : _e.scaling) == null ? void 0 : _f.max) == null) {
+        } else if (!((_j = (_i = axes == null ? void 0 : axes.value) == null ? void 0 : _i.scaling) == null ? void 0 : _j.majorUnit) && ((_l = (_k = axes == null ? void 0 : axes.value) == null ? void 0 : _k.scaling) == null ? void 0 : _l.max) == null) {
           if (isStacked) {
             const primarySeries = series.filter((s) => !s.isSecondaryAxis);
             const categoryCount = Math.max(...primarySeries.map((s) => s.values ? s.values.length : 0), 0);
@@ -6095,7 +6109,7 @@ var require_chartjs_renderer = __commonJS({
             }
           }
         }
-        const catOrientationReversed = ((_h = (_g = axes == null ? void 0 : axes.category) == null ? void 0 : _g.scaling) == null ? void 0 : _h.orientation) === "maxMin";
+        const catOrientationReversed = ((_n = (_m = axes == null ? void 0 : axes.category) == null ? void 0 : _m.scaling) == null ? void 0 : _n.orientation) === "maxMin";
         if (indexAxis === "y" && !isStacked && !catOrientationReversed && datasets.length > 1) {
           datasets.forEach((d, i) => {
             if (d._originalIndex == null) d._originalIndex = i;
@@ -6376,10 +6390,10 @@ var require_chartjs_renderer = __commonJS({
           const secValues = series.filter((s) => s.seriesType === "line" || s.isSecondaryAxis).flatMap((s) => s.values || []).filter((v) => typeof v === "number");
           const lineMin = secValues.length > 0 ? Math.min(...secValues, 0) : 0;
           const lineMax = secValues.length > 0 ? Math.max(...secValues) : 100;
-          const secScaling = (_i = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _i.scaling;
-          const y1MinFromPptx = (_j = secScaling == null ? void 0 : secScaling.min) != null ? _j : null;
-          const y1MaxFromPptx = (_k = secScaling == null ? void 0 : secScaling.max) != null ? _k : null;
-          const y1MajorUnit = (_n = (_m = (_l = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _l.scaling) == null ? void 0 : _m.majorUnit) != null ? _n : null;
+          const secScaling = (_o = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _o.scaling;
+          const y1MinFromPptx = (_p = secScaling == null ? void 0 : secScaling.min) != null ? _p : null;
+          const y1MaxFromPptx = (_q = secScaling == null ? void 0 : secScaling.max) != null ? _q : null;
+          const y1MajorUnit = (_t = (_s = (_r = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _r.scaling) == null ? void 0 : _s.majorUnit) != null ? _t : null;
           let y1Max, y1Step;
           if (y1MaxFromPptx != null) {
             y1Max = y1MaxFromPptx;
@@ -6388,8 +6402,8 @@ var require_chartjs_renderer = __commonJS({
             ({ max: y1Max, step: y1Step } = this.calculateOptimalAxisScale(lineMax, lineMin));
           }
           const y1Min = y1MinFromPptx != null ? y1MinFromPptx : lineMin < 0 ? lineMin : 0;
-          const y1TitleText = ((_p = (_o = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _o.title) == null ? void 0 : _p.text) || "";
-          const y1TitleColor = ((_r = (_q = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _q.title) == null ? void 0 : _r.color) ? this.convertColorToHex(axes.valueSecondary.title.color) : "#666666";
+          const y1TitleText = ((_v = (_u = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _u.title) == null ? void 0 : _v.text) || "";
+          const y1TitleColor = ((_x = (_w = axes == null ? void 0 : axes.valueSecondary) == null ? void 0 : _w.title) == null ? void 0 : _x.color) ? this.convertColorToHex(axes.valueSecondary.title.color) : "#666666";
           config.options.scales.y1 = {
             type: "linear",
             position: "right",
@@ -7690,7 +7704,7 @@ var require_chartjs_renderer = __commonJS({
         const valueAxisPos = catReversed && crossTriggersFlip(valCrossesVal) ? flipPos(rawValueAxisPos, defaultValPos) : rawValueAxisPos;
         const scales = {
           y: {
-            beginAtZero: yAxisMin >= 0,
+            beginAtZero: yAxisMin === 0,
             min: yAxisMin,
             max: yAxisMax,
             stacked: isStacked,
@@ -7738,7 +7752,7 @@ var require_chartjs_renderer = __commonJS({
           const hBarValReverse = this.shouldReverseAxis((_ca = axes == null ? void 0 : axes.value) == null ? void 0 : _ca.scaling, "value");
           let effectiveCatPos = categoryAxisPos;
           scales.x = {
-            beginAtZero: yAxisMin >= 0,
+            beginAtZero: yAxisMin === 0,
             min: yAxisMin,
             max: yAxisMax,
             stacked: isStacked,
@@ -7997,6 +8011,41 @@ var require_chartjs_renderer = __commonJS({
           max: optimalMax,
           step: optimalStep
         };
+      }
+      /**
+       * Compute a PowerPoint-style value-axis range with a NON-ZERO baseline.
+       * PowerPoint does not always start a value axis at zero: when all data is positive
+       * and clustered well above zero, it lifts the minimum (e.g. data 100..115.8 renders
+       * as 90..120 with a step of 10) so the differences between bars stay visible. The
+       * default 0-based scaling would squash such data (e.g. 0..200).
+       *
+       * Returns { min, max, step } with min > 0, or null when no sensible non-zero
+       * baseline applies (caller should then fall back to the 0-based scaling).
+       * @param {number} dataMin - Smallest data value (must be > 0 to get a result)
+       * @param {number} dataMax - Largest data value
+       */
+      calculatePositiveBaselineScale(dataMin, dataMax) {
+        const range = dataMax - dataMin;
+        if (!(range > 0) || !(dataMin > 0)) {
+          return null;
+        }
+        const pad = range * 0.05;
+        const paddedMin = dataMin - pad;
+        const paddedMax = dataMax + pad;
+        const magnitude = Math.pow(10, Math.floor(Math.log10(range)));
+        const steps = [...new Set([100, 50, 20, 10, 5, 2, 1].map((b) => b * (magnitude / 10)))].sort((a, b) => b - a);
+        for (const step of steps) {
+          if (!(step > 0)) {
+            continue;
+          }
+          const min = Math.floor(paddedMin / step) * step;
+          const max = Math.ceil(paddedMax / step) * step;
+          const intervals = (max - min) / step;
+          if (min > 0 && intervals >= 3 && intervals <= 6) {
+            return { min, max, step };
+          }
+        }
+        return null;
       }
     };
     if (typeof module !== "undefined" && module.exports) {
@@ -22675,6 +22724,17 @@ var CDrawingDocument2 = class {
   async drawChart(shape, bounds) {
     const capturedSlideIndex = this.currentSlideIndex;
     const capturedSlide = this.currentSlide;
+    const _csScale = this.coordinateSystem && typeof this.coordinateSystem.scale === "number" && this.coordinateSystem.scale > 0 ? this.coordinateSystem.scale : null;
+    const _csDpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
+    const withChartScale = (cd) => {
+      if (cd && _csScale !== null) {
+        cd._scalingInfo = Object.assign({}, cd._scalingInfo, {
+          displayScale: _csScale,
+          devicePixelRatio: _csDpr
+        });
+      }
+      return cd;
+    };
     if (shape.chartData) {
       if (shape.chartData.type === "DEFERRED_CHART") {
         if (window.ChartProcessor) {
@@ -22709,7 +22769,7 @@ var CDrawingDocument2 = class {
       }
       try {
         const chartRenderer = new ChartRenderer(this.graphics);
-        await chartRenderer.renderChart(shape.chartData, bounds.x, bounds.y, bounds.w, bounds.h);
+        await chartRenderer.renderChart(withChartScale(shape.chartData), bounds.x, bounds.y, bounds.w, bounds.h);
       } catch (error) {
         this.drawChartPlaceholder(bounds, "Render Failed");
       }
@@ -22728,7 +22788,7 @@ var CDrawingDocument2 = class {
         if (embeddedData) {
           shape.chartData = embeddedData;
           const chartRenderer2 = new ChartRenderer(this.graphics);
-          await chartRenderer2.renderChart(embeddedData, bounds.x, bounds.y, bounds.w, bounds.h);
+          await chartRenderer2.renderChart(withChartScale(embeddedData), bounds.x, bounds.y, bounds.w, bounds.h);
           return;
         }
         if (shape.graphicData.chartRef) {
@@ -22742,7 +22802,7 @@ var CDrawingDocument2 = class {
             if (chartData) {
               shape.chartData = chartData;
               const chartRenderer3 = new ChartRenderer(this.graphics);
-              await chartRenderer3.renderChart(chartData, bounds.x, bounds.y, bounds.w, bounds.h);
+              await chartRenderer3.renderChart(withChartScale(chartData), bounds.x, bounds.y, bounds.w, bounds.h);
             } else {
               this.drawChartPlaceholder(bounds, "Processing Failed");
             }
