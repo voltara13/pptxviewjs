@@ -4416,8 +4416,20 @@ class PPTXSlideRenderer {
                 // Margins - align defaults with graphics-adapter.js rendering defaults
                 props.leftMargin = parseInt(bodyPrElement.getAttribute('lIns')) || 45720; // Default ~0.05 inch (1.25mm)
                 props.rightMargin = parseInt(bodyPrElement.getAttribute('rIns')) || 45720;
-                props.topMargin = parseInt(bodyPrElement.getAttribute('tIns')) || 22860; // Default ~0.025 inch (0.625mm) 
+                props.topMargin = parseInt(bodyPrElement.getAttribute('tIns')) || 22860; // Default ~0.025 inch (0.625mm)
                 props.bottomMargin = parseInt(bodyPrElement.getAttribute('bIns')) || 22860;
+
+                // Auto-fit: "shrink text on overflow" (normAutofit) carries a pre-computed
+                // fontScale and lnSpcReduction (in 1/1000 of a percent) that PowerPoint uses to
+                // make the text fit. Expose them as fractions so rendering can honor them;
+                // otherwise the text renders at full size (too wide / overflowing the shape).
+                const normAutofit = bodyPrElement.querySelector('normAutofit, a\\:normAutofit');
+                if (normAutofit) {
+                    const fs = parseInt(normAutofit.getAttribute('fontScale'));
+                    const lnr = parseInt(normAutofit.getAttribute('lnSpcReduction'));
+                    props.fontScale = (Number.isFinite(fs) && fs > 0) ? fs / 100000 : 1;
+                    props.lineSpaceReduction = (Number.isFinite(lnr) && lnr > 0) ? lnr / 100000 : 0;
+                }
             }
         } catch (_error) {
 				// Error ignored

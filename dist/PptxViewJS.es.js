@@ -23071,6 +23071,10 @@ var CDrawingDocument2 = class {
     const textAreaWidth = w;
     const textAreaHeight = h;
     const bodyProps = textBody.bodyProperties || textBody.bodyPr || {};
+    const _afScale = bodyProps.fontScale;
+    this._textAutofitScale = typeof _afScale === "number" && _afScale > 0 && _afScale <= 1 ? _afScale : 1;
+    const _lnReduction = bodyProps.lineSpaceReduction;
+    this._textLineReduction = typeof _lnReduction === "number" && _lnReduction > 0 ? Math.min(0.9, _lnReduction) : 0;
     let verticalAlign = bodyProps.anchor || bodyProps.verticalAlign || "t";
     switch (verticalAlign) {
       case "top":
@@ -23257,7 +23261,7 @@ var CDrawingDocument2 = class {
         }
         const baseFontSize = paraProps.fontSize || 12;
         const scaleFactor = this.getTextScaleFactor();
-        const scaledFontSize = baseFontSize * scaleFactor;
+        const scaledFontSize = baseFontSize * scaleFactor * (this._textAutofitScale || 1);
         const baselineY = currentY + scaledFontSize * 0.8;
         if (lineIndex === 0) {
           if (paraProps.bullet && paraProps.bullet.type !== "none") {
@@ -23387,6 +23391,8 @@ var CDrawingDocument2 = class {
         currentY += paragraphSpacing;
       }
     }
+    this._textAutofitScale = 1;
+    this._textLineReduction = 0;
   }
   /**
    * Calculate wrapped lines for a paragraph
@@ -23491,7 +23497,8 @@ var CDrawingDocument2 = class {
       return;
     }
     const scaleFactor = this.getTextScaleFactor();
-    const scaledFontSize = (runProps.fontSize || 12) * scaleFactor;
+    const autofitScale = this._textAutofitScale || 1;
+    const scaledFontSize = (runProps.fontSize || 12) * scaleFactor * autofitScale;
     const fontStyle = runProps.italic ? "italic" : "normal";
     const fontWeight = runProps.bold ? "bold" : "normal";
     const fontFamily = runProps.fontFamily || "Arial";
@@ -23885,10 +23892,11 @@ var CDrawingDocument2 = class {
    * Fixed: Apply proper scaling to match font scaling
    */
   calculateStandardLineHeight(paraProps, wrappedLines = null) {
+    const lnReductionFactor = 1 - (this._textLineReduction || 0);
     if (paraProps.lineHeightPoints) {
       const pixelsPerPoint = 96 / 72;
       const csScale = this.coordinateSystem && this.coordinateSystem.scale || 1;
-      return paraProps.lineHeightPoints * pixelsPerPoint * csScale;
+      return paraProps.lineHeightPoints * pixelsPerPoint * csScale * lnReductionFactor;
     }
     let baseFontSizePt = paraProps.fontSize || 12;
     if (wrappedLines && wrappedLines.length > 0) {
@@ -23905,9 +23913,10 @@ var CDrawingDocument2 = class {
       }
     }
     const scaleFactor = this.getTextScaleFactor();
-    const scaledFontSizePx = baseFontSizePt * scaleFactor;
+    const autofitScale = this._textAutofitScale || 1;
+    const scaledFontSizePx = baseFontSizePt * scaleFactor * autofitScale;
     const lineHeightPercent = paraProps.lineHeight || 100;
-    const lineHeight = scaledFontSizePx * lineHeightPercent / 100;
+    const lineHeight = scaledFontSizePx * lineHeightPercent / 100 * lnReductionFactor;
     return lineHeight;
   }
   /**
@@ -30984,6 +30993,13 @@ var PPTXSlideRenderer = class {
         props.rightMargin = parseInt(bodyPrElement.getAttribute("rIns")) || 45720;
         props.topMargin = parseInt(bodyPrElement.getAttribute("tIns")) || 22860;
         props.bottomMargin = parseInt(bodyPrElement.getAttribute("bIns")) || 22860;
+        const normAutofit = bodyPrElement.querySelector("normAutofit, a\\:normAutofit");
+        if (normAutofit) {
+          const fs = parseInt(normAutofit.getAttribute("fontScale"));
+          const lnr = parseInt(normAutofit.getAttribute("lnSpcReduction"));
+          props.fontScale = Number.isFinite(fs) && fs > 0 ? fs / 1e5 : 1;
+          props.lineSpaceReduction = Number.isFinite(lnr) && lnr > 0 ? lnr / 1e5 : 0;
+        }
       }
     } catch (_error) {
     }
